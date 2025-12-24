@@ -118,7 +118,7 @@ The system implements a **Microservices Event-Driven Architecture**, fully conta
                     │ (Threat Analysis)│
                     └─────────────────┘
 ```
-![Traffic Data Diagram](./images/traffic-data.jpg)
+![Traffic Data Diagram](../images/traffic-data.jpg)
 
 ### 🔄 Data Flow Pipeline
 
