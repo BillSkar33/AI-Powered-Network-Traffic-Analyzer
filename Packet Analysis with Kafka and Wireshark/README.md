@@ -37,7 +37,7 @@ An enterprise-grade **Data Engineering & Cybersecurity Pipeline** designed for h
 <table>
 <tr>
 <td width="25%" align="center">
-<img src="https://www.pngwing.com/en/free-png-qgdlr" width="64"/>
+<img src="https://img.icons8.com/fluency/96/network" width="64"/>
 <br><b>Real-Time Ingestion</b>
 <br>Apache Kafka streaming
 </td>
@@ -118,6 +118,7 @@ The system implements a **Microservices Event-Driven Architecture**, fully conta
                     │ (Threat Analysis)│
                     └─────────────────┘
 ```
+![Traffic Data Diagram](./images/traffic-data.jpg)
 
 ### 🔄 Data Flow Pipeline
 
