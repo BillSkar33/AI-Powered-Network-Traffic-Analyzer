@@ -77,47 +77,6 @@ The system implements a **Microservices Event-Driven Architecture**, fully conta
 
 ### 📊 Architecture Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        NETWORK TRAFFIC SOURCE                        │
-│                         (Interface: ens33)                           │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                    ┌────────▼────────┐
-                    │   TSHARK PCAP   │ ◄── Packet Capture Layer
-                    │  (JSON Format)  │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │ Python Producer │ ◄── Data Transformation
-                    │  (kafka-python) │
-                    └────────┬────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────────┐
-│                      APACHE KAFKA BROKER                             │
-│                   Topic: network-traffic                             │
-│              (Distributed Message Queue)                             │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  SPARK STREAMING│ ◄── Real-Time Processing
-                    │   (PySpark Job) │
-                    │ • Filter noise  │
-                    │ • Anomaly detect│
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │     MARIADB     │ ◄── Persistent Storage
-                    │ • traffic_logs  │
-                    │ • ai_threat_logs│
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  SPRING BOOT    │ ◄── Application Layer
-                    │   + OpenAI API  │
-                    │ (Threat Analysis)│
-                    └─────────────────┘
-```
 ![Traffic Data Diagram](../images/traffic-data.jpg)
 
 ### 🔄 Data Flow Pipeline
@@ -218,8 +177,8 @@ docker compose ps
 
 **Verification**:
 ```bash
-docker exec -it network_mariadb mariadb -u user -ppassword -e "USE network_traffic_db; SELECT COUNT(*) FROM traffic_logs;"
-# Expected output: 5 rows
+docker exec -it network_mariadb mariadb -u user -password=password -e "USE network_traffic_db; SELECT COUNT(*) FROM traffic_logs;"
+# Expected output: 1 row (test data from script)
 ```
 
 ---
@@ -289,7 +248,7 @@ Streaming to Kafka topic: network-traffic
 
 **Query Database**:
 ```bash
-docker exec -it network_mariadb mariadb -u user -ppassword -e "USE network_traffic_db; SELECT * FROM traffic_logs LIMIT 5;"
+docker exec -it network_mariadb mariadb -u user -password=password -e "USE network_traffic_db; SELECT * FROM traffic_logs LIMIT 5;"
 ```
 
 **[⬆ Back to Top](#-table-of-contents)**
@@ -325,7 +284,7 @@ The `docker-compose.yml` orchestrates a multi-container environment with optimiz
 | Property | Value | Notes |
 |----------|-------|-------|
 | **Container Name** | `network_mariadb` | Persistent data storage |
-| **Image** | `mariadb:10.11` | LTS release |
+| **Image** | `mariadb:latest` | Latest stable release |
 | **Port Mapping** | `3306:3306` | Standard MySQL port |
 | **Environment** | | |
 | • Root Password | `rootpassword` | Admin access |
@@ -351,8 +310,8 @@ jdbc:mariadb://localhost:3306/network_traffic_db?user=user&password=password
 | **Port Mapping** | `9092:9092` (external)<br>`29092:29092` (internal) | Dual listener config |
 | **Dependencies** | `network_zookeeper` | Requires Zookeeper |
 | **Environment** | | |
-| • Zookeeper Connect | `network_zookeeper:2181` | Cluster coordination |
-| • Advertised Listeners | `PLAINTEXT://network_kafka:29092`<br>`PLAINTEXT_HOST://localhost:9092` | Internal + External |
+| • Zookeeper Connect | `zookeeper:2181` | Cluster coordination |
+| • Advertised Listeners | `PLAINTEXT://kafka:29092`<br>`PLAINTEXT_HOST://localhost:9092` | Internal + External |
 | • Offsets Topic Replicas | `1` | Single-node config |
 
 **Producer Configuration** (Python):
@@ -382,23 +341,25 @@ bootstrap_servers=['127.0.0.1:9092']  # Force IPv4
 | Property | Value | Notes |
 |----------|-------|-------|
 | **Container Name** | `spark_master` | Cluster manager |
-| **Image** | `bitnami/spark:3.4` | Latest stable release |
+| **Image** | `apache/spark:3.5.0` | Official Apache image |
 | **Port Mapping** | `8080:8080` (Web UI)<br>`7077:7077` (Master RPC) | Dashboard + job submission |
 | **Environment** | | |
-| • Mode | `master` | Coordination node |
-| • Web UI Port | `8080` | Monitoring interface |
+| • Authentication | `SPARK_RPC_AUTHENTICATION_ENABLED=no` | Disabled for dev |
+| • Encryption | `SPARK_RPC_ENCRYPTION_ENABLED=no` | Disabled for dev |
+| **Command** | `/opt/spark/bin/spark-class org.apache.spark.deploy.master.Master` | Master process |
 
 ##### Spark Worker
 
 | Property | Value | Notes |
 |----------|-------|-------|
 | **Container Name** | `spark_worker` | Execution node |
-| **Image** | `bitnami/spark:3.4` | Same as master |
+| **Image** | `apache/spark:3.5.0` | Official Apache image |
+| **Dependencies** | `spark-master` | Must start after master |
 | **Environment** | | |
-| • Mode | `worker` | Processing node |
-| • Master URL | `spark://spark_master:7077` | Cluster join |
-| • Memory | `1G` | Resource limit |
-| • Cores | `1` | CPU allocation |
+| • Master URL | `spark://spark-master:7077` | Cluster join |
+| • Worker Memory | `1G` | Resource limit |
+| • Authentication | `SPARK_RPC_AUTHENTICATION_ENABLED=no` | Disabled for dev |
+| **Command** | `/opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker` | Worker process |
 
 **Scale Workers**:
 ```bash
@@ -415,8 +376,8 @@ docker compose up -d --scale spark_worker=3
 | **Image** | `provectuslabs/kafka-ui:latest` | Community edition |
 | **Port Mapping** | `8090:8080` | Avoid Spark port conflict |
 | **Environment** | | |
-| • Kafka Clusters | `network_kafka:29092` | Internal connection |
-| • Cluster Name | `Network-Traffic-Cluster` | Display name |
+| • Kafka Clusters | `kafka:29092` | Internal connection |
+| • Cluster Name | `local` | Display name |
 
 **Access**: http://localhost:8090
 
@@ -511,7 +472,7 @@ docker exec -it spark_master /bin/bash
 docker exec network_kafka kafka-topics --list --bootstrap-server localhost:29092
 
 # Query database
-docker exec network_mariadb mariadb -u user -ppassword -e "SHOW DATABASES;"
+docker exec network_mariadb mariadb -u user -password=password -e "SHOW DATABASES;"
 ```
 
 ---
@@ -530,12 +491,12 @@ docker compose up -d --scale spark_worker=5
 
 #### Export Database
 ```bash
-docker exec network_mariadb mysqldump -u user -ppassword network_traffic_db > backup.sql
+docker exec network_mariadb mysqldump -u user -password=password network_traffic_db > backup.sql
 ```
 
 #### Import Database
 ```bash
-docker exec -i network_mariadb mariadb -u user -ppassword network_traffic_db < backup.sql
+docker exec -i network_mariadb mariadb -u user -password=password network_traffic_db < backup.sql
 ```
 
 **[⬆ Back to Top](#-table-of-contents)**
@@ -564,17 +525,20 @@ MariaDB provides ACID-compliant storage with optimized indexing for time-series 
 
 ```sql
 CREATE TABLE traffic_logs (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    event_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     source_ip VARCHAR(45) NOT NULL,           -- IPv4/IPv6 support
-    destination_ip VARCHAR(45) NOT NULL,
     source_port INT,
-    destination_port INT,
-    protocol VARCHAR(20) NOT NULL,
-    packet_length INT,
-    event_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    dest_ip VARCHAR(45) NOT NULL,
+    dest_port INT,
+    protocol VARCHAR(20),
+    length INT,
+    info TEXT,
+    is_suspicious BOOLEAN DEFAULT FALSE,
     INDEX idx_source_ip (source_ip),          -- Fast subnet queries
     INDEX idx_event_time (event_time),        -- Time-range filtering
-    INDEX idx_protocol (protocol)              -- Protocol-specific analysis
+    INDEX idx_protocol (protocol),            -- Protocol-specific analysis
+    INDEX idx_suspicious (is_suspicious)      -- Quick threat filtering
 ) ENGINE=InnoDB;
 ```
 
@@ -589,20 +553,21 @@ CREATE TABLE traffic_logs (
 
 ```sql
 CREATE TABLE ai_threat_logs (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    log_id INT NOT NULL,                      -- Foreign Key to traffic_logs
-    severity_level ENUM('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') NOT NULL,
-    ai_explanation TEXT,                       -- LLM-generated analysis
-    detection_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    log_id BIGINT NOT NULL,                   -- Foreign Key to traffic_logs
+    ai_explanation TEXT,                      -- LLM-generated analysis
+    suggested_action VARCHAR(255),            -- Recommended response
+    severity_level VARCHAR(20),               -- Risk categorization
     FOREIGN KEY (log_id) REFERENCES traffic_logs(id) ON DELETE CASCADE,
-    INDEX idx_severity (severity_level)        -- Fast filtering by risk level
+    INDEX idx_severity (severity_level)       -- Fast filtering by risk level
 ) ENGINE=InnoDB;
 ```
 
 **Design Rationale**:
 - **Normalization**: Separates high-frequency logs from low-frequency AI insights
 - **Cascade Delete**: Removes orphaned AI analysis if raw log is deleted
-- **Enum Severity**: Enforces consistent risk categorization
+- **Flexible Severity**: VARCHAR allows custom risk levels (LOW, MEDIUM, HIGH, CRITICAL, etc.)
+- **Suggested Actions**: Guides automated response systems
 
 ---
 
@@ -614,9 +579,11 @@ USE network_traffic_db;
 
 SELECT 
     source_ip,
-    destination_ip,
+    dest_ip,
     protocol,
-    packet_length,
+    length,
+    info,
+    is_suspicious,
     event_time
 FROM traffic_logs
 ORDER BY event_time DESC
@@ -627,15 +594,17 @@ LIMIT 10;
 ```sql
 SELECT 
     t.source_ip,
-    t.destination_ip,
+    t.dest_ip,
     t.protocol,
+    t.info,
     a.severity_level,
     a.ai_explanation,
-    a.detection_time
+    a.suggested_action,
+    t.event_time
 FROM traffic_logs t
 INNER JOIN ai_threat_logs a ON t.id = a.log_id
 WHERE a.severity_level IN ('HIGH', 'CRITICAL')
-ORDER BY a.detection_time DESC;
+ORDER BY t.event_time DESC;
 ```
 
 #### 3. Traffic Volume by Protocol (Aggregation)
@@ -643,7 +612,8 @@ ORDER BY a.detection_time DESC;
 SELECT 
     protocol,
     COUNT(*) AS packet_count,
-    AVG(packet_length) AS avg_size,
+    AVG(length) AS avg_size,
+    SUM(CASE WHEN is_suspicious = TRUE THEN 1 ELSE 0 END) AS suspicious_count,
     MIN(event_time) AS first_seen,
     MAX(event_time) AS last_seen
 FROM traffic_logs
@@ -656,8 +626,9 @@ ORDER BY packet_count DESC;
 SELECT 
     source_ip,
     COUNT(*) AS total_packets,
-    COUNT(DISTINCT destination_ip) AS unique_destinations,
-    COUNT(DISTINCT destination_port) AS scanned_ports
+    COUNT(DISTINCT dest_ip) AS unique_destinations,
+    COUNT(DISTINCT dest_port) AS scanned_ports,
+    SUM(CASE WHEN is_suspicious = TRUE THEN 1 ELSE 0 END) AS flagged_packets
 FROM traffic_logs
 WHERE event_time >= NOW() - INTERVAL 1 HOUR
 GROUP BY source_ip
@@ -670,7 +641,8 @@ ORDER BY scanned_ports DESC;
 SELECT 
     DATE_FORMAT(event_time, '%Y-%m-%d %H:00:00') AS hour,
     COUNT(*) AS packets,
-    SUM(packet_length) AS total_bytes
+    SUM(length) AS total_bytes,
+    SUM(CASE WHEN is_suspicious = TRUE THEN 1 ELSE 0 END) AS threats
 FROM traffic_logs
 WHERE event_time >= NOW() - INTERVAL 24 HOUR
 GROUP BY hour
@@ -683,7 +655,7 @@ ORDER BY hour;
 
 #### Connect to MariaDB Shell
 ```bash
-docker exec -it network_mariadb mariadb -u user -ppassword
+docker exec -it network_mariadb mariadb -u user -password=password
 ```
 
 #### Show Database Size
@@ -729,7 +701,7 @@ The ingestion layer captures live network traffic and streams it to Kafka using 
 ```
 ┌──────────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
 │  Network Layer   │───▶│   Tshark     │───▶│   Python     │───▶│    Kafka     │
-│   (ens33)        │    │  JSON Output │    │   Producer   │    │    Broker    │
+│   (ens33/eth0)   │    │  JSON Output │    │   Producer   │    │    Broker    │
 │ Ethernet Frames  │    │  Line Buffer │    │ kafka-python │    │ Topic: net.. │
 └──────────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
 ```
