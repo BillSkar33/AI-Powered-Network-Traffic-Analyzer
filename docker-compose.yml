@@ -21,7 +21,7 @@ services:
   # 2. KAFKA & ZOOKEEPER (Messaging)
   # ------------------------------------------------------------
   zookeeper:
-    image: confluentinc/cp-zookeeper:latest
+    image: confluentinc/cp-zookeeper:7.4.0
     container_name: network_zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -30,7 +30,7 @@ services:
       - traffic-net
 
   kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.4.0
     container_name: network_kafka
     depends_on:
       - zookeeper

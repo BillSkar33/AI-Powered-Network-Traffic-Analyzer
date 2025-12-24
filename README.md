@@ -7,13 +7,13 @@ An enterprise-grade data pipeline for real-time network traffic analysis. This p
 
 ## 📋 Table of Contents
 
-1. [Project Overview](https://www.google.com/search?q=%23-project-overview)
-2. [Architecture](https://www.google.com/search?q=%23-system-architecture)
-3. [Initialization & Setup](https://www.google.com/search?q=%23-initialization--setup)
-4. [Infrastructure & Configuration](https://www.google.com/search?q=%23-infrastructure--configuration-docker-compose)
-5. [Docker Command Reference](https://www.google.com/search?q=%23-docker-command-reference)
-6. [Database Layer (MariaDB)](https://www.google.com/search?q=%23-database-layer-mariadb)
-7. [Contact](https://www.google.com/search?q=%23-contact)
+1. [Project Overview](#-project-overview)
+2. [System Architecture](#-system-architecture)
+3. [Initialization & Setup](#-initialization-&-setup)
+4. [Infrastructure & Configuration](#-infrastructure-&-configuration-(docker-compose))
+5. [Docker Command Reference](#-docker-command-reference)
+6. [Database Layer (MariaDB)](#-database-layer-(mariaDB))
+7. [Wireshark to Kafka](#-data-ingestion-layer-(wireshar-to-kafka))
 
 ---
 
@@ -189,7 +189,68 @@ WHERE a.severity_level = 'HIGH';
 
 ---
 
-## 📞 Contact
+## 📡 Data Ingestion Layer (Wireshark to Kafka)
 
-Created by **[Your Name]**.
-Part of a Technical Portfolio demonstrating Full-Stack Data Engineering & AI integration.
+This phase establishes the "pipe" that captures live network traffic and streams it into the Big Data infrastructure.
+
+### 🔄 The Ingestion Pipeline
+The system uses a **Producer-Consumer** pattern to decouple packet capture from processing.
+
+`[Network Interface (ens33)]` ➔ `[Tshark Capture]` ➔ `[Pipe |]` ➔ `[Python Producer]` ➔ `[Kafka Topic: network-traffic]`
+
+1.  **Capture:** `Tshark` listens to the active network interface.
+2.  **Format:** Converts raw binary packets into **JSON** format.
+3.  **Stream:** Pipes the JSON output directly to a Python script (`stdin`).
+4.  **Push:** The Python script cleans the data and pushes it to the Kafka Broker on port **9092**.
+
+---
+
+### 🛠️ Setup & Execution
+
+Two scripts manage the ingestion layer. Run them in the following order:
+
+#### Step 1: Install Dependencies (`04-install-tools.sh`)
+Installs Wireshark/Tshark, Python 3, and the `kafka-python-ng` library.
+* **Key Action:** Configures user permissions to allow packet capture without `sudo` (root) privileges.
+* **Command:**
+    ```bash
+    ./04-install-tools.sh
+    ```
+    *> Note: You may need to log out and log back in (or run `newgrp wireshark`) for permissions to take effect.*
+
+#### Step 2: Start Traffic Capture (`05-start-capture.sh`)
+Automatically detects your primary network interface and starts the streaming pipeline.
+* **Command:**
+    ```bash
+    ./05-start-capture.sh
+    ```
+* **Verification:** You should see dots (`.......`) printing on the terminal. Each dot represents a captured packet sent to Kafka.
+
+---
+
+### 🧠 Technical Deep Dive
+
+| Component | Technical Detail | Explanation |
+| :--- | :--- | :--- |
+| **Interface `ens33`** | **Predictable Network Interface Names** | On modern Linux systems (Ubuntu 24.04), network interfaces are named based on firmware/BIOS location. `ens33` is the standard identifier for the primary Ethernet adapter in VMware/Virtual environments (replacing the old `eth0`). |
+| **Port 9092** | **PLAINTEXT_HOST** | The Kafka Broker exposes port **9092** specifically for external producers (like our Python script running on the Host OS). Internal Docker containers communicate on port `29092`. |
+| **Data Format** | **JSON Serialization** | Tshark is configured with `-T json`. We chose JSON over PCAP because it is human-readable and easily parsed by Spark and Python without complex binary decoding libraries. |
+| **Buffering** | **Line Buffered (`-l`)** | The `tshark -l` flag is critical. It forces Tshark to flush data to the pipe immediately after each packet, ensuring **Real-Time** streaming instead of waiting for a buffer to fill up. |
+
+---
+
+### 🔧 Troubleshooting & Fixes Implemented
+
+During the development of the Ingestion Layer, the following architectural fixes were applied:
+
+#### 1. Kafka Version Compatibility (KRaft vs Zookeeper)
+* **Issue:** The `latest` Kafka image defaulted to KRaft mode, causing `NoBrokersAvailable` errors due to missing role configuration.
+* **Fix:** Pinned the Kafka and Zookeeper image versions to **`7.4.0`**. This ensures a stable, Zookeeper-based cluster compatible with standard `cp-kafka` configurations.
+
+#### 2. Tshark Permission Denied
+* **Issue:** `tshark: Couldn't run dumpcap in child process: Permission denied`.
+* **Fix:** Added the user to the `wireshark` group via `usermod -aG wireshark $USER` and reconfigured `dpkg-reconfigure wireshark-common` to allow non-superusers to capture packets.
+
+#### 3. IPv6/IPv4 Binding
+* **Issue:** The Python script failed to connect to `localhost:9092` on Ubuntu systems where `localhost` resolves to `::1` (IPv6).
+* **Fix:** Hardcoded the Producer bootstrap server to **`127.0.0.1:9092`** to force IPv4 connectivity with the Docker container.
