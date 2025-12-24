@@ -37,12 +37,12 @@ An enterprise-grade **Data Engineering & Cybersecurity Pipeline** designed for h
 <table>
 <tr>
 <td width="25%" align="center">
-<img src="https://img.icons8.com/color/96/000000/data-transfer.png" width="64"/>
+<img src="https://www.pngwing.com/en/free-png-qgdlr" width="64"/>
 <br><b>Real-Time Ingestion</b>
 <br>Apache Kafka streaming
 </td>
 <td width="25%" align="center">
-<img src="https://img.icons8.com/color/96/000000/spark.png" width="64"/>
+<img src="https://img.icons8.com/fluency/96/sparkling.png" width="64"/>
 <br><b>Stream Processing</b>
 <br>Spark Streaming & Filtering
 </td>
