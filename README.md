@@ -34,7 +34,7 @@ This project implements an enterprise-grade **Data Engineering & Cybersecurity P
 
 The system follows a **Microservices Event-Driven Architecture**, fully containerized using Docker.
 
-![System Architecture Diagram](./images/architecture_diagram.png)
+![System Architecture Diagram](/images/architecture_diagram.jpg)
 
 ### Data Flow Pipeline
 
