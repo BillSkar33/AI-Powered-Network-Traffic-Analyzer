@@ -67,7 +67,7 @@ services:
   # ------------------------------------------------------------
   spark-master:
     image: apache/spark:3.5.0
-    container_name: spark_master
+    container_name: spark_master   # <--- ΕΔΩ ΒΓΑΛΕ ΤΟ # (Να είναι ενεργό)
     environment:
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
@@ -78,12 +78,11 @@ services:
       - "7077:7077"
     networks:
       - traffic-net
-    # Εντολή εκκίνησης για τον Master
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
 
   spark-worker:
     image: apache/spark:3.5.0
-    container_name: spark_worker
+    # container_name: spark_worker  <--- ΕΔΩ ΒΑΛΕ # (Να γίνει σχόλιο)
     depends_on:
       - spark-master
     environment:
@@ -95,7 +94,6 @@ services:
       - SPARK_SSL_ENABLED=no
     networks:
       - traffic-net
-    # Εντολή εκκίνησης για τον Worker
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
 
 volumes:

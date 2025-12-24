@@ -79,16 +79,6 @@ The system implements a **Microservices Event-Driven Architecture**, fully conta
 
 ![Traffic Data Diagram](../images/traffic-data.jpg)
 
-### 🔄 Data Flow Pipeline
-
-| Stage | Component | Function | Output |
-|-------|-----------|----------|--------|
-| **1. Capture** | Tshark | Raw packet capture from network interface | Binary PCAP → JSON |
-| **2. Buffer** | Kafka | High-throughput message broker | Persistent topic queue |
-| **3. Process** | Spark Streaming | Filter, aggregate, detect anomalies | Structured records |
-| **4. Store** | MariaDB | ACID-compliant relational storage | Indexed logs |
-| **5. Analyze** | GenAI (OpenAI/Ollama) | Natural language threat explanation | Risk assessment |
-
 **[⬆ Back to Top](#-table-of-contents)**
 
 ---
@@ -177,8 +167,14 @@ docker compose ps
 
 **Verification**:
 ```bash
-docker exec -it network_mariadb mariadb -u user -password=password -e "USE network_traffic_db; SELECT COUNT(*) FROM traffic_logs;"
-# Expected output: 1 row (test data from script)
+docker exec -it network_mariadb mariadb -u user -ppassword -e "USE network_traffic_db; SHOW TABLES;"
+# Expected output:
++------------------------------+
+| Tables_in_network_traffic_db |
++------------------------------+
+| ai_threat_logs               |
+| traffic_logs                 |
++------------------------------+
 ```
 
 ---
@@ -243,12 +239,15 @@ Streaming to Kafka topic: network-traffic
 
 **Check Kafka Topic**:
 1. Navigate to http://localhost:8090
+![Kafka Local Host](../images/kafka_run.png)
+
 2. Click on `network-traffic` topic
 3. Verify messages are being produced
 
+
 **Query Database**:
 ```bash
-docker exec -it network_mariadb mariadb -u user -password=password -e "USE network_traffic_db; SELECT * FROM traffic_logs LIMIT 5;"
+docker exec -it network_mariadb mariadb -u user -ppassword -e "USE network_traffic_db; SELECT * FROM traffic_logs LIMIT 5;"
 ```
 
 **[⬆ Back to Top](#-table-of-contents)**
@@ -365,7 +364,8 @@ bootstrap_servers=['127.0.0.1:9092']  # Force IPv4
 ```bash
 docker compose up -d --scale spark_worker=3
 ```
-
+**Access**: http://localhost:8080
+![Spark Local Host](../images/spark_run.png)
 ---
 
 #### 5. Kafka UI (Monitoring Dashboard)
@@ -816,33 +816,58 @@ tshark -i ens33 \            # Network interface
 
 **Python Script** (`kafka_producer.py`):
 ```python
-from kafka import KafkaProducer
-import json
 import sys
+import json
+from kafka import KafkaProducer
 
+# Ρύθμιση του Producer
 producer = KafkaProducer(
-    bootstrap_servers=['127.0.0.1:9092'],  # IPv4 forced
-    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-    acks='all',                             # Wait for all replicas
-    retries=3,                              # Retry failed sends
-    max_in_flight_requests_per_connection=1 # Preserve order
+    bootstrap_servers=['127.0.0.1:9092'],
+    value_serializer=lambda x: json.dumps(x).encode('utf-8')
 )
 
+TOPIC_NAME = 'network-traffic'
+
+print(f"[*] Starting Kafka Producer. Sending data to topic: {TOPIC_NAME}")
+
+# Διαβάζουμε το Standard Input (το pipe από το Tshark)
 for line in sys.stdin:
     try:
-        packet = json.loads(line)
-        producer.send('network-traffic', value=packet)
-        print('.', end='', flush=True)     # Visual indicator
+        line = line.strip()
+        
+        # Το Tshark -T json βγάζει array ([...]). Εμείς θέλουμε καθαρά αντικείμενα.
+        # Αγνοούμε την αρχή "[" και το τέλος "]"
+        if line == "[" or line == "]":
+            continue
+            
+        # Αφαιρούμε το κόμμα στο τέλος της γραμμής αν υπάρχει (π.χ. "},")
+        if line.endswith(","):
+            line = line[:-1]
+            
+        # Προσπαθούμε να το κάνουμε parse ως JSON για να δούμε αν είναι έγκυρο
+        json_data = json.loads(line)
+        
+        # Αποστολή στον Kafka
+        producer.send(TOPIC_NAME, value=json_data)
+        
+        # Τυπώνουμε μια τελεία για κάθε πακέτο (για να βλέπουμε ότι κινείται)
+        print(".", end="", flush=True)
+        
     except json.JSONDecodeError:
-        continue                            # Skip malformed packets
+        # Αν η γραμμή δεν είναι JSON, την αγνοούμε
+        pass
+    except Exception as e:
+        print(f"\n[!] Error: {e}")
 
-producer.flush()
+print("\n[!] Stream ended.")
 ```
 
-**Producer Configuration**:
-- `acks='all'`: Ensures data durability (waits for replication)
-- `retries=3`: Handles transient network failures
-- `max_in_flight_requests=1`: Maintains packet order (critical for stream processing)
+**Producer Configuration:**
+* **Bootstrap Servers:** `127.0.0.1:9092` (Direct IPv4 connection to Docker Kafka Broker).
+* **Target Topic:** `network-traffic`.
+* **Serializer:** Custom Lambda (`JSON` -> `UTF-8 Bytes`).
+* **Input Source:** `sys.stdin` (Reads live stream directly from Tshark pipe).
+* **Data Parsing:** Filters out JSON array brackets (`[`, `]`) to stream single line objects.
 
 ---
 

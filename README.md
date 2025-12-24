@@ -6,6 +6,16 @@ An end-to-end data engineering pipeline for real-time network traffic analysis, 
 The system follows a **Microservices Event-Driven Architecture**, fully containerized using Docker.
 ![System Architecture Diagram](/images/architecture_diagram.jpg)
 
+### 🔄 Data Flow Pipeline
+
+| Stage | Component | Function | Output |
+|-------|-----------|----------|--------|
+| **1. Capture** | Tshark | Raw packet capture from network interface | Binary PCAP → JSON |
+| **2. Buffer** | Kafka | High-throughput message broker | Persistent topic queue |
+| **3. Process** | Spark Streaming | Filter, aggregate, detect anomalies | Structured records |
+| **4. Store** | MariaDB | ACID-compliant relational storage | Indexed logs |
+| **5. Analyze** | GenAI (OpenAI/Ollama) | Natural language threat explanation | Risk assessment |
+
 ## 📂 Repository Structure
 
 ### 1. [Packet Analysis with Kafka and Wireshark](./Packet%20Analysis%20with%20Kafka%20and%20Wireshark)
